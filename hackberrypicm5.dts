@@ -5,7 +5,7 @@
 	fragment@0 {
 		target-path = "/";
 		__overlay__ {
-			i2c_gpio: i2c-gpio@0 {
+			i2c_gpio: i2c-gpio {
 				compatible = "i2c-gpio";
 				gpios = <&rp1_gpio 10 0
 				&rp1_gpio 11 0>;
@@ -52,7 +52,7 @@
 	fragment@2 {
 		target-path = "/";
 		__overlay__ {
-			panel: panel@0 {
+			panel: panel {
 				compatible = "panel-dpi";
 				
 				width-mm = <154>;
