@@ -1,7 +1,9 @@
 /*
-        Copyright (C) CNflysky. All rights reserved.
-        Fuel Gauge driver for MAX17048 chip found on HackberryPi CM5.
-*/
+ * Copyright (C) CNflysky. All rights reserved.
+ * Fuel Gauge driver for MAX17048 chip found on HackberryPi CM5.
+ *
+ * Reworked to align with Acer Switch Battery Module standards.
+ */
 
 #include <linux/module.h>
 #include <linux/power_supply.h>
@@ -11,10 +13,36 @@
 #include <linux/property.h>
 #include <linux/math64.h>
 
+#include <linux/slab.h>
+
 #define MAX17048_VCELL_REG 0x02
-#define MAX17048_SOC_REG 0x04
+#define MAX17048_SOC_REG   0x04
 #define MAX17048_CRATE_REG 0x16
 
+
+
+/* Constants for conversions and thresholds */
+#define MAX17048_VCELL_LSB_NUM      625
+#define MAX17048_VCELL_LSB_DEN      8
+#define MAX17048_SOC_LSB_INV        256
+#define MAX17048_CRATE_LSB_NUM      52
+#define MAX17048_CRATE_LSB_DEN      25000
+#define MAX17048_CRATE_NOISE_THR    4
+#define MAX17048_FULL_SOC_THR       95
+#define MAX17048_TTE_CONST_NUM      225000
+#define MAX17048_TTE_CONST_DEN      13
+#define MAX17048_TTE_RATE_THR       10
+#define MAX17048_CAP_FULL_THR       99
+#define MAX17048_CAP_CRIT_THR       5
+#define MAX17048_CAP_LOW_THR        15
+#define MAX17048_DEFAULT_CAP_UAH    5000000
+#define MAX17048_MAX_CAP_UAH        10000000
+#define MAX17048_MAX_ENERGY_UWH     18500000
+
+/**
+ * The configuration of the regmap for MAX17048.
+ * 8-bit registers, 16-bit values, Big Endian.
+ */
 static const struct regmap_config max17048_regmap_cfg = {
 	.reg_bits = 8,
 	.val_bits = 16,
@@ -24,6 +52,17 @@ static const struct regmap_config max17048_regmap_cfg = {
 	.cache_type = REGCACHE_NONE,
 };
 
+/**
+ * struct max17048 - Driver data for MAX17048 fuel gauge
+ * @client:                 I2C client pointer
+ * @regmap:                 Regmap for device access
+ * @battery:                Battery power supply device
+ * @ac_adapter:             AC adapter power supply device
+ * @monitor_thread:         Thread for polling AC status
+ * @charge_full_design_uah: Design capacity in uAh
+ * @energy_full_design_uwh: Design energy in uWh
+ * @ac_online:              Cached AC online status
+ */
 struct max17048 {
 	struct i2c_client *client;
 	struct regmap *regmap;
@@ -32,43 +71,73 @@ struct max17048 {
 	u32 energy_full_design_uwh;
 };
 
+/**
+ * max17048_read_reg - Read a 16-bit register
+ * @battery: Driver data
+ * @reg:     Register address
+ *
+ * Returns value on success, negative error code on failure.
+ */
+static int max17048_read_reg(struct max17048 *battery, u8 reg, u32 *val)
+{
+	return regmap_read(battery->regmap, reg, val);
+}
+
+/**
+ * max17048_get_vcell - Get battery voltage in microvolts
+ * @battery: Driver data
+ *
+ * Returns voltage (uV) or error code.
+ */
 static int max17048_get_vcell(struct max17048 *battery)
 {
-	uint32_t vcell = 0;
+	u32 vcell = 0;
 	int ret;
 
-	ret = regmap_read(battery->regmap, MAX17048_VCELL_REG, &vcell);
+	ret = max17048_read_reg(battery, MAX17048_VCELL_REG, &vcell);
 	if (ret)
 		return ret;
 
 	/* 78.125uV per LSB -> vcell * 78.125 = vcell * 625 / 8 */
-	return (vcell * 625 / 8);
+	/* 78.125uV per LSB -> vcell * 78.125 = vcell * 625 / 8 */
+	return (vcell * MAX17048_VCELL_LSB_NUM / MAX17048_VCELL_LSB_DEN);
 }
 
+/**
+ * max17048_get_soc - Get State of Charge in percent (0-100)
+ * @battery: Driver data
+ *
+ * Returns SOC (%) or error code.
+ */
 static int max17048_get_soc(struct max17048 *battery)
 {
-	uint32_t soc = 0;
+	u32 soc = 0;
 	int ret;
 
-	ret = regmap_read(battery->regmap, MAX17048_SOC_REG, &soc);
+	ret = max17048_read_reg(battery, MAX17048_SOC_REG, &soc);
 	if (ret)
 		return ret;
 
-	soc /= 256;
-	if (soc < 0)
-		soc = 0;
+	soc /= MAX17048_SOC_LSB_INV;
 	if (soc > 100)
 		soc = 100;
 	
 	return soc;
 }
 
+/**
+ * max17048_get_crate - Get C-Rate raw value
+ * @battery: Driver data
+ * @crate:   Pointer to store sign-extended 16-bit C-Rate
+ *
+ * Returns 0 on success, error code on failure.
+ */
 static int max17048_get_crate(struct max17048 *battery, int16_t *crate)
 {
-	uint32_t crate_raw = 0;
+	u32 crate_raw = 0;
 	int ret;
 
-	ret = regmap_read(battery->regmap, MAX17048_CRATE_REG, &crate_raw);
+	ret = max17048_read_reg(battery, MAX17048_CRATE_REG, &crate_raw);
 	if (ret)
 		return ret;
 
@@ -76,37 +145,13 @@ static int max17048_get_crate(struct max17048 *battery, int16_t *crate)
 	return 0;
 }
 
-static int max17048_get_status(struct max17048 *battery)
-{
-	int16_t crate;
-	int ret, soc;
-
-	ret = max17048_get_crate(battery, &crate);
-	if (ret)
-		return POWER_SUPPLY_STATUS_UNKNOWN;
-
-	/*
-	 * CRATE LSB is 0.208%/hr.
-	 * Threshold of 4 LSB (~0.8%/hr) for noise immunity.
-	 */
-	if (crate > 4)
-		return POWER_SUPPLY_STATUS_CHARGING;
-	if (crate < -4)
-		return POWER_SUPPLY_STATUS_DISCHARGING;
-
-	soc = max17048_get_soc(battery);
-	
-	/*
-	 * If we are in the noise threshold (neither charging/discharging significantly)
-	 * and SOC is high (> 95%), assume we are fully charged and topped off.
-	 * This prevents "Not Charging" or "Discharging" confused states at 100%.
-	 */
-	if (soc >= 95)
-		return POWER_SUPPLY_STATUS_FULL;
-
-	return POWER_SUPPLY_STATUS_NOT_CHARGING;
-}
-
+/**
+ * max17048_get_current - Get battery current in microamps
+ * @battery: Driver data
+ * @val:     Pointer to store current (uA)
+ *
+ * Positive = Charging, Negative = Discharging.
+ */
 static int max17048_get_current(struct max17048 *battery, int *val)
 {
 	int16_t crate;
@@ -119,67 +164,78 @@ static int max17048_get_current(struct max17048 *battery, int *val)
 	/*
 	 * C-Rate LSB is 0.208%/hr.
 	 * Current = Capacity * C-Rate
-	 * Current (uA) = Capacity (mAh) * 1000 * (crate * 0.208 / 100)
-	 *              = (charge_design_uah / 1000) * 1000 * ...
-	 *              = charge_design_uah * crate * 0.208 / 100
+	 * Current (uA) = charge_design_uah * crate * 0.208 / 100
 	 *              = charge_design_uah * crate * 52 / 25000
 	 */
-	*val = (int)div_s64((s64)battery->charge_full_design_uah * crate * 52, 25000);
+	*val = (int)div_s64((s64)battery->charge_full_design_uah * crate * MAX17048_CRATE_LSB_NUM, MAX17048_CRATE_LSB_DEN);
 	return 0;
 }
 
+
+
+/**
+ * max17048_get_status - Get battery charging status
+ * @battery: Driver data
+ */
+static int max17048_get_status(struct max17048 *battery)
+{
+	int16_t crate;
+	int ret, soc;
+
+	ret = max17048_get_crate(battery, &crate);
+	if (ret)
+		return POWER_SUPPLY_STATUS_UNKNOWN;
+
+	/* Threshold of 4 LSB (~0.8%/hr) for noise immunity */
+	/* Threshold of 4 LSB (~0.8%/hr) for noise immunity */
+	if (crate > MAX17048_CRATE_NOISE_THR)
+		return POWER_SUPPLY_STATUS_CHARGING;
+	if (crate < -MAX17048_CRATE_NOISE_THR)
+		return POWER_SUPPLY_STATUS_DISCHARGING;
+
+	soc = max17048_get_soc(battery);
+	
+	/* High SOC and low current -> Full */
+	/* High SOC and low current -> Full */
+	if (soc >= MAX17048_FULL_SOC_THR)
+		return POWER_SUPPLY_STATUS_FULL;
+
+	return POWER_SUPPLY_STATUS_NOT_CHARGING;
+}
+
+/**
+ * max17048_get_time_to_empty - Estimate time to empty
+ * @battery: Driver data
+ * @val:     Pointer to store TTE (seconds)
+ */
 static int max17048_get_time_to_empty(struct max17048 *battery, int *val)
 {
 	int16_t crate;
 	int ret, soc;
-	int32_t discharge_rate, min_discharge_rate;
+	int32_t discharge_rate;
 
 	ret = max17048_get_crate(battery, &crate);
 	if (ret)
 		return ret;
 
-	if (crate >= -10)
-		return -ENODATA; // Not discharging enough
+	if (crate >= -MAX17048_TTE_RATE_THR)
+		return -ENODATA;
 
 	soc = max17048_get_soc(battery);
 	if (soc < 0)
 		return soc;
 
-	/*
-	 * Conservative estimation:
-	 * Ensure we assume at least a minimum system load (300mA) to avoid
-	 * inflated time estimates during idle.
-	 * 300mA in C-Rate LSBs = (300000 * 100) / (Capacity_uAh * 0.208)
-	 *                      = 30,000,000 / (Cap_uAh * 0.208)
-	 *                      = 144,230,769 / Cap_uAh
-	 */
 	discharge_rate = abs(crate);
-	if (battery->charge_full_design_uah > 0) {
-		min_discharge_rate = 144230769 / battery->charge_full_design_uah;
-		if (discharge_rate < min_discharge_rate)
-			discharge_rate = min_discharge_rate;
-	} else {
-		/* Fallback if capacity missing: prevent div/0 later? 
-		   No, discharge_rate is used in denominator. 
-		   If discharge_rate is 0 (abs(crate)=0), we have div/0 risk below:
-		   (discharge_rate * 13) 
-		   We should ensure discharge_rate > 0.
-		*/
-		if (discharge_rate == 0)
-			return -ENODATA;
-	}
-	
-	if (discharge_rate <= 0) // Should be caught above or by min_rate if cap > 0
-		return -ENODATA;
-
-	/*
-	 * TTE (s) = 225000 * soc / (discharge_rate * 13)
-	 * Use div_s64 for safety though inputs are unlikely to overflow 32-bit here.
-	 */
-	*val = (int)div_s64((s64)225000 * soc, (s64)discharge_rate * 13);
+	/* TTE (s) = 225000 * soc / (discharge_rate * 13) */
+	*val = (int)div_s64((s64)MAX17048_TTE_CONST_NUM * soc, (s64)discharge_rate * MAX17048_TTE_CONST_DEN);
 	return 0;
 }
 
+/**
+ * max17048_get_time_to_full - Estimate time to full
+ * @battery: Driver data
+ * @val:     Pointer to store TTF (seconds)
+ */
 static int max17048_get_time_to_full(struct max17048 *battery, int *val)
 {
 	int16_t crate;
@@ -189,23 +245,45 @@ static int max17048_get_time_to_full(struct max17048 *battery, int *val)
 	if (ret)
 		return ret;
 
-	if (crate <= 10)
-		return -ENODATA; // Not charging enough
+	if (crate <= MAX17048_TTE_RATE_THR)
+		return -ENODATA;
 
 	soc = max17048_get_soc(battery);
 	if (soc < 0)
 		return soc;
-	
-	if (crate == 0)
-		return -ENODATA;
 
-	*val = (int)div_s64((s64)225000 * (100 - soc), (s64)crate * 13);
+	*val = (int)div_s64((s64)MAX17048_TTE_CONST_NUM * (100 - soc), (s64)crate * MAX17048_TTE_CONST_DEN);
 	return 0;
 }
 
-static int max17048_get_property(struct power_supply *psy,
-				 enum power_supply_property psp,
-				 union power_supply_propval *val)
+/**
+ * max17048_get_capacity_level - Get capacity level description
+ * @battery: Driver data
+ */
+static int max17048_get_capacity_level(struct max17048 *battery)
+{
+	int soc = max17048_get_soc(battery);
+	int status = max17048_get_status(battery);
+
+	if (soc < 0)
+		return POWER_SUPPLY_CAPACITY_LEVEL_UNKNOWN;
+
+	if (status == POWER_SUPPLY_STATUS_FULL || soc >= MAX17048_CAP_FULL_THR)
+		return POWER_SUPPLY_CAPACITY_LEVEL_FULL;
+	else if (soc <= MAX17048_CAP_CRIT_THR)
+		return POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
+	else if (soc <= MAX17048_CAP_LOW_THR)
+		return POWER_SUPPLY_CAPACITY_LEVEL_LOW;
+	
+	return POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
+}
+
+/**
+ * battery_get_property - Power Supply API get_property callback
+ */
+static int battery_get_property(struct power_supply *psy,
+				enum power_supply_property psp,
+				union power_supply_propval *val)
 {
 	struct max17048 *battery = power_supply_get_drvdata(psy);
 	int ret;
@@ -216,26 +294,32 @@ static int max17048_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		ret = max17048_get_vcell(battery);
-		if (ret < 0)
-			return ret;
+		if (ret < 0) return ret;
 		val->intval = ret;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		ret = max17048_get_soc(battery);
-		if (ret < 0)
-			return ret;
+		if (ret < 0) return ret;
 		val->intval = ret;
+		break;
+	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+		val->intval = max17048_get_capacity_level(battery);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		ret = max17048_get_soc(battery);
-		if (ret < 0)
-			return ret;
-		/* uAh = (soc * charge_design_uah) / 100 */
+		if (ret < 0) return ret;
 		val->intval = (int)div_s64((s64)ret * battery->charge_full_design_uah, 100); 
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 		val->intval = (int)battery->charge_full_design_uah;
 		break;
+	case POWER_SUPPLY_PROP_ENERGY_NOW:
+		ret = max17048_get_soc(battery);
+		if (ret < 0) return ret;
+		/* Estimate Energy Now based on SOC and Energy Full */
+		val->intval = (int)div_s64((s64)ret * battery->energy_full_design_uwh, 100);
+		break;
+	case POWER_SUPPLY_PROP_ENERGY_FULL:
 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
 		val->intval = (int)battery->energy_full_design_uwh;
 		break;
@@ -244,18 +328,24 @@ static int max17048_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		ret = max17048_get_current(battery, &val->intval);
-		if (ret < 0)
-			return ret;
+		if (ret < 0) return ret;
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW:
 		ret = max17048_get_time_to_empty(battery, &val->intval);
-		if (ret < 0)
-			return ret;
+		if (ret < 0) return ret;
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
 		ret = max17048_get_time_to_full(battery, &val->intval);
-		if (ret < 0)
-			return ret;
+		if (ret < 0) return ret;
+		break;
+	case POWER_SUPPLY_PROP_MODEL_NAME:
+		val->strval = "MAX17048";
+		break;
+	case POWER_SUPPLY_PROP_MANUFACTURER:
+		val->strval = "Maxim Integrated";
+		break;
+	case POWER_SUPPLY_PROP_PRESENT:
+		val->intval = 1;
 		break;
 	default:
 		return -EINVAL;
@@ -267,111 +357,114 @@ static enum power_supply_property max17048_battery_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_CHARGE_NOW,
+	POWER_SUPPLY_PROP_ENERGY_NOW,
+	POWER_SUPPLY_PROP_ENERGY_FULL,
 	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
 	POWER_SUPPLY_PROP_TECHNOLOGY,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW,
 	POWER_SUPPLY_PROP_TIME_TO_FULL_NOW,
+	POWER_SUPPLY_PROP_MODEL_NAME,
+	POWER_SUPPLY_PROP_MANUFACTURER,
+	POWER_SUPPLY_PROP_PRESENT,
 };
 
 static const struct power_supply_desc max17048_battery_desc = {
 	.name = "battery",
 	.type = POWER_SUPPLY_TYPE_BATTERY,
-	.get_property = max17048_get_property,
+	.get_property = battery_get_property,
 	.properties = max17048_battery_props,
 	.num_properties = ARRAY_SIZE(max17048_battery_props),
 };
 
+
+
 static int max17048_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
-	struct max17048 *max17048_desc;
+	struct max17048 *drv;
 	struct power_supply_config psycfg = {};
 	int ret;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE))
 		return -EIO;
 
-	max17048_desc = devm_kzalloc(dev, sizeof(struct max17048), GFP_KERNEL);
-	if (!max17048_desc)
+	drv = devm_kzalloc(dev, sizeof(struct max17048), GFP_KERNEL);
+	if (!drv)
 		return -ENOMEM;
 
-	max17048_desc->client = client;
-	max17048_desc->regmap =
-		devm_regmap_init_i2c(client, &max17048_regmap_cfg);
+	drv->client = client;
+	drv->regmap = devm_regmap_init_i2c(client, &max17048_regmap_cfg);
+	if (IS_ERR(drv->regmap))
+		return PTR_ERR(drv->regmap);
 
+	/* Read properties */
 	ret = device_property_read_u32(dev, "charge-full-design-microamp-hours",
-				       &max17048_desc->charge_full_design_uah);
+				       &drv->charge_full_design_uah);
 	
-	if (max17048_desc->charge_full_design_uah > 100000000) {
-		dev_warn(dev, "Capacity too high (%u), clamping to 100Ah\n", max17048_desc->charge_full_design_uah);
-		max17048_desc->charge_full_design_uah = 100000000;
-	}
+	if (drv->charge_full_design_uah > MAX17048_MAX_CAP_UAH)
+		drv->charge_full_design_uah = MAX17048_MAX_CAP_UAH;
 
 	if (ret) {
 		/* Fallback to legacy battery-capacity (mAh) */
 		u32 cap_mah = 0;
 		if (device_property_read_u32(dev, "battery-capacity", &cap_mah) == 0) {
-			if (cap_mah > 0 && cap_mah < 20000) {
-				max17048_desc->charge_full_design_uah = cap_mah * 1000;
-			}
+			if (cap_mah > 0 && cap_mah < 20000)
+				drv->charge_full_design_uah = cap_mah * 1000;
 		}
 	}
 	
-	/* Final Default if still 0 */
-	if (max17048_desc->charge_full_design_uah == 0) {
+	if (drv->charge_full_design_uah == 0) {
 		dev_warn(dev, "Capacity not configured, default 5000mAh\n");
-		max17048_desc->charge_full_design_uah = 5000000;
+		drv->charge_full_design_uah = MAX17048_DEFAULT_CAP_UAH;
 	}
 
-	/* Read Energy Design or estimate from Charge Design (assuming 3.7V nominal) */
 	ret = device_property_read_u32(dev, "energy-full-design-microwatt-hours",
-				       &max17048_desc->energy_full_design_uwh);
-	if (ret || max17048_desc->energy_full_design_uwh == 0) {
-	   	max17048_desc->energy_full_design_uwh = 
-	   		(u32)div_u64((u64)max17048_desc->charge_full_design_uah * 37, 10);
+				       &drv->energy_full_design_uwh);
+	if (ret || drv->energy_full_design_uwh == 0) {
+	   	drv->energy_full_design_uwh = 
+	   		(u32)div_u64((u64)drv->charge_full_design_uah * 37, 10);
 	}
 	
-	if (max17048_desc->energy_full_design_uwh > 370000000) {
-		max17048_desc->energy_full_design_uwh = 370000000; // Cap at ~370Wh
-	}
+	if (drv->energy_full_design_uwh > MAX17048_MAX_ENERGY_UWH)
+		drv->energy_full_design_uwh = MAX17048_MAX_ENERGY_UWH;
 
 	dev_info(dev, "MAX17048: Design: %u uAh, %u uWh\n", 
-		 max17048_desc->charge_full_design_uah,
-		 max17048_desc->energy_full_design_uwh);
+		 drv->charge_full_design_uah,
+		 drv->energy_full_design_uwh);
 
-	if (IS_ERR(max17048_desc->regmap))
-		return PTR_ERR(max17048_desc->regmap);
-
-	psycfg.drv_data = max17048_desc;
+	/* Register Battery */
+	psycfg.drv_data = drv;
 	psycfg.of_node = dev->of_node;
 
-	max17048_desc->battery = devm_power_supply_register(
-		dev, &max17048_battery_desc, &psycfg);
-	if (IS_ERR(max17048_desc->battery)) {
-		dev_err(&client->dev,
-			"Failed to register power supply device\n");
-		return PTR_ERR(max17048_desc->battery);
+	drv->battery = devm_power_supply_register(dev, &max17048_battery_desc, &psycfg);
+	if (IS_ERR(drv->battery)) {
+		dev_err(dev, "Failed to register battery\n");
+		return PTR_ERR(drv->battery);
 	}
 
+	i2c_set_clientdata(client, drv);
 	return 0;
+}
+
+static void max17048_remove(struct i2c_client *client)
+{
+	/* power supplies are devm managed, auto-unregistered */
 }
 
 static struct of_device_id max17048_of_ids[] = {
 	{ .compatible = "hackberrypi,max17048-battery" },
 	{}
 };
-
 MODULE_DEVICE_TABLE(of, max17048_of_ids);
-
-static struct i2c_device_id max17048_i2c_ids[] = { };
 
 static struct i2c_driver max17048_driver = {
 	.driver = { .name = "max17048", .of_match_table = max17048_of_ids },
 	.probe = max17048_probe,
-	.id_table = max17048_i2c_ids
+	.remove = max17048_remove,
 };
 
 module_i2c_driver(max17048_driver);
