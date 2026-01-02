@@ -22,6 +22,7 @@ install: remove
 	install -m 644 -D $(MODULE_NAME) $(MODULE_INSTALL_DIR)
 	install -m 644 -D $(DT_NAME).dtbo $(OVERLAY_DIR)
 	depmod -a
+	sed -i "/dtoverlay=vc4-kms-dpi-hyperpixel4sq/d" $(CONFIG_TXT)
 	echo "dtoverlay=$(DT_NAME)" >> $(CONFIG_TXT)
 	echo "Please reboot to apply changes"
 
