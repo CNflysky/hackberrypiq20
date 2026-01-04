@@ -32,6 +32,11 @@
 					reg = <0x36>;
 					/* 5000mAh = 5,000,000uAh */
 					charge-full-design-microamp-hours = <5000000>;
+					
+					/* 18.5Wh = 18,500,000uWh */
+					energy-full-design-microwatt-hours = <18500000>;
+					
+					/* ALRT pin is not connected to a known GPIO, so no interrupts */
 				};
 			};
 		};
