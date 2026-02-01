@@ -8,7 +8,6 @@ cd hackberrypiq20
 make && sudo make install
 sudo reboot
 ```
-Don't forget to remove the `dtoverlay=hyperpixel4sq` line in your `config.txt`
 
 # remove
 ```bash
