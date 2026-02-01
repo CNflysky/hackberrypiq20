@@ -30,3 +30,4 @@ remove:
 	rm -rf $(MODULE_INSTALL_DIR)/$(MODULE_NAME)
 	rm -rf $(OVERLAY_DIR)/$(DT_NAME).dtbo
 	sed -i "/dtoverlay=$(DT_NAME)/d" $(CONFIG_TXT)
+echo "dtoverlay=vc4-kms-dpi-hyperpixel4sq" >> $(CONFIG_TXT)
