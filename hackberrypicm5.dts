@@ -5,15 +5,16 @@
 	fragment@0 {
 		target-path = "/";
 		__overlay__ {
-			i2c_gpio: i2c-gpio@0 {
+			i2c_gpio: i2c-gpio {
 				compatible = "i2c-gpio";
 				gpios = <&rp1_gpio 10 0
-				&rp1_gpio 11 0>;
+				         &rp1_gpio 11 0>;
 				i2c-gpio,delay-us = <4>;
+				/* GPIO 10/11 are unused by DPI 18-bit (RGB666) mode, making them available for I2C */
 				#address-cells = <1>;
 				#size-cells = <0>;
 				
-				touch: edt-ft5x06@48 {
+				touch: touchscreen@48 {
 					#address-cells = <1>;
 					#size-cells = <0>;
 					compatible = "edt,edt-ft5406";
@@ -26,10 +27,16 @@
 					touchscreen-size-y = <720>;
 				};
 				
-				fuel_gauge: max17048@36 {
+				fuel_gauge: battery@36 {
 					compatible = "hackberrypi,max17048-battery";
 					reg = <0x36>;
-					battery-capacity = <5000>;
+					/* 5000mAh = 5,000,000uAh */
+					charge-full-design-microamp-hours = <5000000>;
+					
+					/* 18.5Wh = 18,500,000uWh */
+					energy-full-design-microwatt-hours = <18500000>;
+					
+					/* ALRT pin is not connected to a known GPIO, so no interrupts */
 				};
 			};
 		};
@@ -52,11 +59,12 @@
 	fragment@2 {
 		target-path = "/";
 		__overlay__ {
-			panel: panel@0 {
+			panel: panel {
 				compatible = "panel-dpi";
 				
-				width-mm = <154>;
-				height-mm = <83>;
+				/* Actual display area for 4-inch square screen is approx 72x72mm */
+				width-mm = <72>;
+				height-mm = <72>;
 				bus-format = <0x1024>;
 				
 				timing: panel-timing {
