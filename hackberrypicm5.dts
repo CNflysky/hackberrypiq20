@@ -62,9 +62,11 @@
 			panel: panel {
 				compatible = "panel-dpi";
 				
-				/* Actual display area for 4-inch square screen is approx 72x72mm */
-				width-mm = <72>;
-				height-mm = <72>;
+				/* Actual display area for 4-inch square screen is approx 72x72mm *
+				 * But use 144 because it's high dpi and lots of systems *
+				 * don't deal well with small screens */
+				width-mm = <144>;
+				height-mm = <144>;
 				bus-format = <0x1024>;
 				
 				timing: panel-timing {
