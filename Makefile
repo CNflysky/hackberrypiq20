@@ -1,22 +1,15 @@
 obj-m += hackberrypi-max17048.o
 
-DT_NAME := hackberrypicm5
+KDIR ?= /lib/modules/$(shell uname -r)/build
+PWD  := $(shell pwd)
 
-MODULE_NAME := hackberrypi-max17048.ko
-
-CONFIG_TXT := /boot/firmware/config.txt
-
-OVERLAY_DIR := /boot/firmware/overlays
-
-MODULE_INSTALL_DIR := /lib/modules/$(shell uname -r)/kernel/drivers/power/supply
+all: modules
 
 modules:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
-	dtc -I dts -O dtb -o $(DT_NAME).dtbo $(DT_NAME).dts
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 clean:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-	rm -rf *.dtbo
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 install: remove
 	install -m 644 -D $(MODULE_NAME) $(MODULE_INSTALL_DIR)

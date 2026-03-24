@@ -40,7 +40,6 @@
 #define MAX17048_CAP_FULL_THR 99
 #define MAX17048_CAP_CRIT_THR 5
 #define MAX17048_CAP_LOW_THR 15
-#define MAX17048_CAP_LOW_THR 15
 #define MAX17048_DEFAULT_CAP_UAH 5000000
 #define MAX17048_MAX_CAP_UAH 10000000
 #define MAX17048_MAX_ENERGY_UWH 18500000
@@ -106,7 +105,6 @@ static int max17048_get_vcell(struct max17048 *battery) {
   if (ret)
     return ret;
 
-  /* 78.125uV per LSB -> vcell * 78.125 = vcell * 625 / 8 */
   /* 78.125uV per LSB -> vcell * 78.125 = vcell * 625 / 8 */
   return (vcell * MAX17048_VCELL_LSB_NUM / MAX17048_VCELL_LSB_DEN);
 }
@@ -190,7 +188,6 @@ static int max17048_get_status(struct max17048 *battery) {
   if (ret)
     return POWER_SUPPLY_STATUS_UNKNOWN;
 
-  /* Threshold of 4 LSB (~0.8%/hr) for noise immunity */
   /* Threshold of 4 LSB (~0.8%/hr) for noise immunity */
   if (crate > MAX17048_CRATE_NOISE_THR)
     return POWER_SUPPLY_STATUS_CHARGING;
