@@ -47,10 +47,12 @@ ls /lib/modules/$(uname -r)/build
 
 ## Install
 
-Download the latest `.deb` package from [Releases](https://github.com/CNflysky/hackberrypiq20/releases), then install it:
+Install latest release:
 
 ```bash
-sudo dpkg -i hackberrypiq20_*.deb
+curl -L0 https://github.com/CNflysky/hackberrypiq20/releases/latest/download/hackberrypi-max17048-dkms-all.deb -O hackberrypi-max17048-dkms-all.deb
+sudo apt install ./hackberrypi-max17048-dkms-all.deb
+rm hackberrypi-max17048-dkms-all.deb
 sudo reboot
 ```
 
@@ -71,7 +73,7 @@ ls /sys/class/power_supply/
 ## Uninstall
 
 ```bash
-sudo dpkg -r hackberrypiq20
+sudo apt purge hackberrypi-max17048-dkms*
 sudo reboot
 ```
 
