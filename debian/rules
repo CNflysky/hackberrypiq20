@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+version := $(shell dpkg-parsechangelog | grep '^Version:' | cut -d' ' -f2 | cut -d- -f1)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	:
+
+override_dh_auto_clean:
+    :
+
+override_dh_auto_install:
+	dh_install hackberrypi-max17048.c hackberrypicm5.dts Makefile \
+		/usr/src/hackberrypi-max17048-$(version)/
+	dh_dkms

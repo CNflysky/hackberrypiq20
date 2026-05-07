@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+CONFIG_TXT="/boot/firmware/config.txt"
+OVERLAY_DIR="/boot/firmware/overlays"
+OVERLAY_NAME="hackberrypicm5.dtbo"
+DT_NAME="hackberrypicm5"
+
+echo "Cleaning up..."
+rm -f ${OVERLAY_DIR}/${OVERLAY_NAME}
+sed -i "\|^dtoverlay=${DT_NAME}$|d" "${CONFIG_TXT}"
+exit 0

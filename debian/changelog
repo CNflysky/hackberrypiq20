@@ -1,0 +1,5 @@
+hackberrypi-max17048-dkms (1.0-1) unstable; urgency=medium
+
+  * Initial Debian packaging.
+
+ -- CNflysky <cnflysky@qq.com>  Thu, 07 May 2026 00:00:00 +0800

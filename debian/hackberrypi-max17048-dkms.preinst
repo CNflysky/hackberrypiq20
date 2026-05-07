@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+CONFIG_TXT="/boot/firmware/config.txt"
+OVERLAY_DIR="/boot/firmware/overlays"
+OVERLAY_NAME="hackberrypicm5.dtbo"
+if [ ! -d $OVERLAY_DIR ]
+then 
+    echo "Missing $OVERLAY_DIR" && exit 1
+fi
+
+if [ ! -f $CONFIG_TXT ]
+then
+    echo "Missing $CONFIG_TXT" && exit 1
+fi
+exit 0

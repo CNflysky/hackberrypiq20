@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+OVERLAY_DIR="/boot/firmware/overlays"
+OVERLAY_NAME="hackberrypicm5.dtbo"
+DT_NAME="hackberrypicm5"
+CONFIG_TXT="/boot/firmware/config.txt"
+#DEBHELPER#
+
+echo "Installing overlay"
+dtc -I dts -O dtb -o ${OVERLAY_DIR}/${OVERLAY_NAME} /usr/src/${DKMS_NAME}-${DKMS_VERSION}/hackberrypicm5.dts
+if grep -qx "dtoverlay=${DT_NAME}" "${CONFIG_TXT}"; then
+  echo "Overlay already enabled in config.txt"
+else
+  echo "dtoverlay=${DT_NAME}" >> "${CONFIG_TXT}"
+  echo "Overlay enabled in config.txt"
+fi
+exit 0

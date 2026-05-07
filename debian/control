@@ -1,0 +1,21 @@
+Source: hackberrypi-max17048-dkms
+Section: kernel
+Priority: optional
+Maintainer: CNflysky <cnflysky@qq.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Vcs-Git: https://github.com/CNflysky/hackberrypiq20.git
+Vcs-Browser: https://github.com/CNflysky/hackberrypiq20
+
+Package: hackberrypi-max17048-dkms
+Architecture: all
+Multi-Arch: foreign
+Depends: dkms, device-tree-compiler, ${misc:Depends}
+Description: MAX17048 battery fuel-gauge driver for HackberryPi Q20 (DKMS)
+ Kernel module driver for the MAX17048 battery fuel gauge chip
+ found on the HackberryPi Q20 (Raspberry Pi CM5).
+ .
+ Uses DKMS to automatically rebuild the kernel module after
+ kernel updates. Also installs the device-tree overlay for
+ display panel, touchscreen, and I2C GPIO configuration.
