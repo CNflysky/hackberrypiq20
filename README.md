@@ -47,11 +47,10 @@ ls /lib/modules/$(uname -r)/build
 
 ## Install
 
+Download the latest `.deb` package from [Releases](https://github.com/CNflysky/hackberrypiq20/releases), then install it:
+
 ```bash
-git clone https://github.com/CNflysky/hackberrypiq20.git
-cd hackberrypiq20
-chmod +x install.sh uninstall.sh
-sudo ./install.sh
+sudo dpkg -i hackberrypiq20_*.deb
 sudo reboot
 ```
 
@@ -72,7 +71,7 @@ ls /sys/class/power_supply/
 ## Uninstall
 
 ```bash
-sudo ./uninstall.sh
+sudo dpkg -r hackberrypiq20
 sudo reboot
 ```
 
