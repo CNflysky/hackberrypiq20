@@ -22,10 +22,10 @@ jobs:
     - name: Build package
       run: |
         dpkg-buildpackage -us -uc -b
-        mv ../*.deb .
+        mv ../*.deb ./hackberrypi-max17048-dkms-all.deb
 
     - name: Upload package
       uses: actions/upload-artifact@v7
       with:
-        name: hackberrypi-max17048-dkms_1.0-1_all.deb
-        path: hackberrypi-max17048-dkms_1.0-1_all.deb
+        name: hackberrypi-max17048-dkms-all.deb
+        path: hackberrypi-max17048-dkms-all.deb
