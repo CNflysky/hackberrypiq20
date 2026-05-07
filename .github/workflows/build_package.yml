@@ -1,0 +1,31 @@
+name: Build Package
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:stable
+
+    steps:
+    - name: Fetch code
+      uses: actions/checkout@v6
+
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y debhelper dkms dh-dkms devscripts build-essential
+
+    - name: Build package
+      run: |
+        dpkg-buildpackage -us -uc -b
+        mv ../*.deb .
+
+    - name: Upload package
+      uses: actions/upload-artifact@v7
+      with:
+        name: hackberrypi-max17048-dkms_1.0-1_all.deb
+        path: hackberrypi-max17048-dkms_1.0-1_all.deb
