@@ -1,6 +1,11 @@
 name: Build Package
 on:
   push:
+    paths:
+      - "debian/**"
+      - "hackberrypi-max17048.c"
+      - "hackberrypicm5.dts"
+      - ".github/actions/**"
   workflow_dispatch:
 
 permissions:
