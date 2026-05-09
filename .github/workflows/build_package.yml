@@ -1,8 +1,10 @@
 name: Build Package
 on:
   push:
-  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -29,3 +31,10 @@ jobs:
       with:
         name: hackberrypi-max17048-dkms-all.deb
         path: hackberrypi-max17048-dkms-all.deb
+    
+    - name: Publish release
+      uses: softprops/action-gh-release@v3
+      if: github.ref_type == 'tag'
+      with:
+        files: |
+          hackberrypi-max17048-dkms-all.deb
