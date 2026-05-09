@@ -5,7 +5,7 @@ on:
       - "debian/**"
       - "hackberrypi-max17048.c"
       - "hackberrypicm5.dts"
-      - ".github/actions/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
