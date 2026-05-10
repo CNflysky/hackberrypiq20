@@ -6,6 +6,6 @@ OVERLAY_NAME="hackberrypicm5.dtbo"
 DT_NAME="hackberrypicm5"
 
 echo "Cleaning up..."
-rm -f ${OVERLAY_DIR}/${OVERLAY_NAME}
+rm -f ${OVERLAY_DIR}/${OVERLAY_NAME} /usr/share/keyrings/hackberrypi-max17048.gpg /etc/apt/sources.list.d/hackberrypi-max17048.sources
 sed -i "\|^dtoverlay=${DT_NAME}$|d" "${CONFIG_TXT}"
 exit 0
