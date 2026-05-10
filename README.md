@@ -54,7 +54,7 @@ Install latest release:
 curl -fsSL https://cnflysky.github.io/hackberrypiq20/hackberrypi-max17048.gpg.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/hackberrypi-max17048.gpg
 # Add apt source
-sudo cat > /etc/apt/sources.list.d/hackberrypi-max17048.sources <<EOF
+sudo tee /etc/apt/sources.list.d/hackberrypi-max17048.sources <<EOF
 Types: deb
 URIs: https://cnflysky.github.io/hackberrypiq20/
 Suites: stable
