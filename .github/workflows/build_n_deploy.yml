@@ -1,0 +1,116 @@
+name: Build and deploy
+on:
+  push:
+    paths:
+      - "debian/**"
+      - "hackberrypi-max17048.c"
+      - "hackberrypicm5.dts"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:stable
+    steps:
+      - name: Fetch code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y debhelper dkms dh-dkms devscripts build-essential
+
+      - name: Build package
+        run: |
+          dpkg-buildpackage -us -uc -b
+          mv ../*.deb ./hackberrypi-max17048-dkms-all.deb
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: hackberrypi-max17048-dkms-all.deb
+          path: hackberrypi-max17048-dkms-all.deb
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        if: github.ref_type == 'tag'
+        with:
+          files: hackberrypi-max17048-dkms-all.deb
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: debian:stable
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download deb artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: hackberrypi-max17048-dkms-all.deb
+          path: repo/pool/main/
+
+      - name: Install dpkg tools and gnupg
+        run: |
+          apt-get update
+          apt-get install -y dpkg-dev apt-utils gnupg
+
+      - name: Import GPG private key
+        run: echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Generate Packages index
+        run: |
+          cd repo
+          mkdir -p dists/stable/main/binary-all
+          dpkg-scanpackages pool/main /dev/null \
+            > dists/stable/main/binary-all/Packages
+          gzip -k dists/stable/main/binary-all/Packages
+
+      - name: Generate Release file
+        run: |
+          cd repo/dists/stable
+          cat > Release <<EOF
+          Origin: hackberrypi-max17048
+          Label: hackberrypi-max17048
+          Suite: stable
+          Codename: stable
+          Architectures: all
+          Components: main
+          Description: hackberrypi-max17088 apt repo
+          EOF
+          apt-ftparchive release . >> Release
+
+      - name: Sign Release file
+        run: |
+          cd repo/dists/stable
+          gpg --batch --yes --trust-model always \
+              --clearsign --output InRelease Release
+          gpg --batch --yes --trust-model always \
+              --detach-sign --armor --output Release.gpg Release
+
+      - name: Export public key
+        run: |
+          echo "${{ vars.GPG_PUBLIC_KEY }}" > repo/hackberrypi-max17048.gpg.key
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: repo/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
