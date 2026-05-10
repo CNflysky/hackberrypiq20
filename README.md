@@ -50,9 +50,20 @@ ls /lib/modules/$(uname -r)/build
 Install latest release:
 
 ```bash
-curl -L0 https://github.com/CNflysky/hackberrypiq20/releases/latest/download/hackberrypi-max17048-dkms-all.deb -O hackberrypi-max17048-dkms-all.deb
-sudo apt install ./hackberrypi-max17048-dkms-all.deb
-rm hackberrypi-max17048-dkms-all.deb
+# Add repo key
+curl -fsSL https://cnflysky.github.io/hackberrypiq20/hackberrypi-max17048.gpg.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/hackberrypi-max17048.gpg
+# Add apt source
+sudo cat > /etc/apt/sources.list.d/hackberrypi-max17048.sources <<EOF
+Types: deb
+URIs: https://u2hts.github.io/hackberrypiq20/
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/hackberrypi-max17048.gpg
+EOF
+# install
+sudo apt update
+sudo apt install hackberrypi-max17048-dkms
 sudo reboot
 ```
 
@@ -73,6 +84,8 @@ ls /sys/class/power_supply/
 ## Uninstall
 
 ```bash
+# this will delete hackberrypi-max17048.gpg and hackberrypi-max17048.sources file.
+# no manual cleanup required.
 sudo apt purge hackberrypi-max17048-dkms*
 sudo reboot
 ```
