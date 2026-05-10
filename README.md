@@ -56,7 +56,7 @@ curl -fsSL https://cnflysky.github.io/hackberrypiq20/hackberrypi-max17048.gpg.ke
 # Add apt source
 sudo cat > /etc/apt/sources.list.d/hackberrypi-max17048.sources <<EOF
 Types: deb
-URIs: https://u2hts.github.io/hackberrypiq20/
+URIs: https://cnflysky.github.io/hackberrypiq20/
 Suites: stable
 Components: main
 Signed-By: /usr/share/keyrings/hackberrypi-max17048.gpg
