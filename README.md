@@ -59,6 +59,7 @@ Types: deb
 URIs: https://cnflysky.github.io/hackberrypiq20/
 Suites: stable
 Components: main
+Architectures: all
 Signed-By: /usr/share/keyrings/hackberrypi-max17048.gpg
 EOF
 # install
