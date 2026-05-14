@@ -13,6 +13,8 @@
 #include <linux/power_supply.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
+#include <linux/version.h>
+
 
 #include <linux/interrupt.h>
 #include <linux/jiffies.h>
@@ -492,7 +494,11 @@ static int max17048_probe(struct i2c_client *client) {
 
   /* Register Battery */
   psycfg.drv_data = drv;
-  psycfg.of_node = dev->of_node;
+  #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+    psycfg.fwnode = dev_fwnode(dev);
+  #else
+    psycfg.of_node = dev->of_node;
+  #endif
 
   drv->battery =
       devm_power_supply_register(dev, &max17048_battery_desc, &psycfg);
