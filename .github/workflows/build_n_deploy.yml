@@ -32,7 +32,11 @@ jobs:
           apt-get install -y debhelper dkms dh-dkms devscripts build-essential
 
       - name: Build package
+        env:
+          DEBFULLNAME: ${{ github.actor }}
+          DEBEMAIL: "${{ github.actor }}@users.noreply.github.com"
         run: |
+          dch -D stable -v `cat VERSION` ${{ github.event.head_commit.message }}
           dpkg-buildpackage -us -uc -b
           mv ../*.deb ./hackberrypi-max17048-dkms-all.deb
 
